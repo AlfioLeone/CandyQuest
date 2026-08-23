@@ -1,108 +1,87 @@
 import SwiftUI
 
-/// Collects the on-screen frames of the drop targets, keyed by pair id,
-/// in the global coordinate space.
-private struct TargetFramesKey: PreferenceKey {
-    static var defaultValue: [UUID: CGRect] = [:]
-    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
-        value.merge(nextValue()) { _, new in new }
-    }
-}
-
 struct DragMatchView: View {
-    var onComplete: (Int) -> Void
+    let onComplete: (Int) -> Void
+    private let level: GameLevel
 
-    // Generated ONCE (in init, via @State) so the word list and the target list
-    // always share the exact same identifiers — this is what lets a drop be
-    // recognized as a correct match. Re-deriving this data inside `body` would
-    // regenerate fresh random IDs on every SwiftUI re-render and break matching.
+    // Generate once to keep stable IDs across renders
     @State private var pairs: [MatchPair]
-    @State private var shuffledEmojiSlots: [MatchPair]
+    @State private var shuffledTargets: [MatchPair]
 
+    // Simple state, inspired by ReadingTapView
     @State private var matchedIDs: Set<UUID> = []
     @State private var wrongDrops = 0
-
-    @State private var targetFrames: [UUID: CGRect] = [:]
-    @State private var dragOffsets: [UUID: CGSize] = [:]
-    @State private var activeDragID: UUID? = nil
     @State private var hoveredTargetID: UUID? = nil
     @State private var shakeID: UUID? = nil
 
-    /// How much extra room (in points) beyond the visible circle counts as a hit.
-    /// Kept generous since small fingers on a small target are imprecise.
-    private let hitTestPadding: CGFloat = 30
-
     init(level: GameLevel, onComplete: @escaping (Int) -> Void) {
+        self.level = level
         self.onComplete = onComplete
         let generated = GameData.matchPairs(for: level)
         _pairs = State(initialValue: generated)
-        _shuffledEmojiSlots = State(initialValue: generated.shuffled())
+        _shuffledTargets = State(initialValue: generated.shuffled())
     }
 
     var body: some View {
-        VStack(spacing: 32) {
+        VStack(spacing: 24) {
+            Spacer(minLength: 0)
             Text("Drag each word to its match!")
                 .font(.candyBody(20))
                 .foregroundColor(.black.opacity(0.7))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 20)
 
-            // Drop targets (emoji slots) — matched ones fade out. A wrapping grid
-            // (rather than a fixed HStack) keeps this from overflowing the screen
-            // now that rounds can have up to 5 pairs.
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 80), spacing: 16)], spacing: 16) {
-                ForEach(shuffledEmojiSlots) { pair in
-                    if !matchedIDs.contains(pair.id) {
-                        Text(pair.emoji)
-                            .font(.system(size: 44))
-                            .frame(width: 80, height: 80)
-                            .background(
-                                CandyCardBackground(
-                                    color: hoveredTargetID == pair.id ? CandyTheme.hotPink : CandyTheme.mint
-                                )
-                            )
-                            .scaleEffect(hoveredTargetID == pair.id ? 1.12 : 1.0)
-                            .animation(.spring(response: 0.2, dampingFraction: 0.6), value: hoveredTargetID)
-                            .background(
-                                GeometryReader { geo in
-                                    Color.clear
-                                        .preference(key: TargetFramesKey.self, value: [pair.id: geo.frame(in: .global)])
+            VStack(spacing: 8) {
+                let spacing: CGFloat = 6
+                let targetSize: CGFloat = 76
+                let wordFont: CGFloat = 16
+                let columns = [GridItem(.adaptive(minimum: targetSize, maximum: 120), spacing: spacing, alignment: .center)]
+
+                LazyVGrid(columns: columns, spacing: spacing) {
+                    ForEach(shuffledTargets, id: \.id) { target in
+                        if !matchedIDs.contains(target.id) {
+                            let isHovered: Bool = (hoveredTargetID == target.id)
+
+                            TargetDropCell(
+                                target: target,
+                                size: targetSize,
+                                isHovered: isHovered,
+                                onDropMatch: { droppedID in
+                                    if let dropped = pairs.first(where: { $0.id == droppedID }) {
+                                        handleDrop(dropped: dropped, onto: target)
+                                    }
+                                },
+                                onHoverChange: { hovering in
+                                    hoveredTargetID = hovering ? target.id : nil
                                 }
                             )
-                            .transition(.scale.combined(with: .opacity))
+                        }
                     }
                 }
-            }
+                .padding(.vertical, 6)
+                .frame(maxWidth: 320, alignment: .center)
+                .frame(maxWidth: .infinity)
 
-            // Draggable words — follow the finger directly, no press-and-hold needed.
-            // Matched ones fade out together with their target above.
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 90), spacing: 14)], spacing: 14) {
-                ForEach(pairs) { pair in
-                    if !matchedIDs.contains(pair.id) {
-                        Text(pair.word)
-                            .font(.candyBody(16))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                            .background(CandyCardBackground(color: CandyTheme.hotPink))
-                            .offset(dragOffsets[pair.id] ?? .zero)
-                            .modifier(ShakeEffect(shakes: shakeID == pair.id ? 2 : 0))
-                            .zIndex(activeDragID == pair.id ? 1 : 0)
-                            .transition(.scale.combined(with: .opacity))
-                            .gesture(
-                                DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                                    .onChanged { value in
-                                        activeDragID = pair.id
-                                        dragOffsets[pair.id] = value.translation
-                                        hoveredTargetID = targetID(at: value.location)
-                                    }
-                                    .onEnded { value in
-                                        handleDrop(of: pair, at: value.location)
-                                    }
-                            )
+                LazyVGrid(columns: columns, spacing: spacing) {
+                    ForEach(pairs, id: \.id) { pair in
+                        if !matchedIDs.contains(pair.id) {
+                            DraggableWord(pair: pair, fontSize: wordFont, minWidth: targetSize)
+                                .modifier(ShakeEffect(shakes: shakeID == pair.id ? 2 : 0))
+                                .draggable(pair.id, preview: {
+                                    Text(pair.word)
+                                        .padding(8)
+                                        .background(CandyCardBackground(color: CandyTheme.hotPink))
+                                })
+                        }
                     }
                 }
+                .padding(.vertical, 6)
+                .frame(maxWidth: 320, alignment: .center)
+                .frame(maxWidth: .infinity)
             }
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 24)
-        .onPreferenceChange(TargetFramesKey.self) { targetFrames = $0 }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         .onChange(of: matchedIDs) { newValue in
             if newValue.count == pairs.count {
                 let stars = wrongDrops == 0 ? 3 : (wrongDrops <= 2 ? 2 : 1)
@@ -111,44 +90,108 @@ struct DragMatchView: View {
                 }
             }
         }
+        .onAppear {
+            if pairs.isEmpty { regeneratePairs() }
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 24)
     }
 
-    /// Finds a target whose (padded) frame contains the given global point, if any.
-    private func targetID(at point: CGPoint) -> UUID? {
-        targetFrames.first { _, rect in
-            rect.insetBy(dx: -hitTestPadding, dy: -hitTestPadding).contains(point)
-        }?.key
-    }
+    // MARK: - Logic
 
-    private func handleDrop(of pair: MatchPair, at location: CGPoint) {
-        activeDragID = nil
-        hoveredTargetID = nil
-
-        if let hitID = targetID(at: location) {
-            if hitID == pair.id {
-                // Correct match: both the word and its target fade out together.
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                    matchedIDs.insert(pair.id)
-                }
-                dragOffsets[pair.id] = .zero
-                return
-            } else {
-                wrongDrops += 1
+    private func handleDrop(dropped: MatchPair, onto target: MatchPair) {
+        if dropped.id == target.id {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                matchedIDs.insert(target.id)
+            }
+        } else {
+            wrongDrops += 1
+            shakeID = dropped.id
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                if shakeID == dropped.id { shakeID = nil }
             }
         }
+    }
 
-        // No match (or wrong target): spring back to the tray and give a little shake.
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.6)) {
-            dragOffsets[pair.id] = .zero
-        }
-        shakeID = pair.id
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            if shakeID == pair.id { shakeID = nil }
+    private func regeneratePairs() {
+        let generated = GameData.matchPairs(for: level)
+        pairs = generated
+        shuffledTargets = generated.shuffled()
+        matchedIDs.removeAll()
+        wrongDrops = 0
+    }
+}
+
+// MARK: - Subviews
+
+private struct TargetDropCell: View {
+    let target: MatchPair
+    let size: CGFloat
+    let isHovered: Bool
+    let onDropMatch: (UUID) -> Void
+    let onHoverChange: (Bool) -> Void
+
+    var body: some View {
+        TargetCard(emoji: target.emoji, size: size, hovered: isHovered)
+            .scaleEffect(isHovered ? 1.08 : 1.0)
+            .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isHovered)
+            .dropDestination(for: UUID.self) { (items: [UUID], _) -> Bool in
+                guard let droppedID = items.first else { return false }
+                onDropMatch(droppedID)
+                return true
+            } isTargeted: { hovering in
+                onHoverChange(hovering)
+            }
+    }
+}
+
+private struct TargetCard: View {
+    let emoji: String
+    let size: CGFloat
+    let hovered: Bool
+    var body: some View {
+        Text(emoji)
+            .font(.system(size: size * 0.55))
+            .frame(width: size, height: size)
+            .background(CandyCardBackground(color: hovered ? CandyTheme.hotPink : CandyTheme.mint))
+            .accessibilityLabel("Target \(emoji)")
+    }
+}
+
+private struct DraggableWord: View {
+    let pair: MatchPair
+    let fontSize: CGFloat
+    let minWidth: CGFloat
+
+    var body: some View {
+        Text(pair.word)
+            .foregroundColor(.black)
+            .font(.candyBody(fontSize))
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .padding(.horizontal, minWidth < 70 ? 8 : 14)
+            .padding(.vertical, minWidth < 70 ? 6 : 10)
+            .background(CandyCardBackground(color: CandyTheme.hotPink))
+            .accessibilityLabel("Word \(pair.word)")
+    }
+}
+import UniformTypeIdentifiers
+
+extension UUID: Transferable {
+    public static var transferRepresentation: some TransferRepresentation {
+        DataRepresentation(contentType: .data) { uuid in
+            withUnsafeBytes(of: uuid.uuid) { Data($0) }
+        } importing: { data in
+            guard data.count == 16 else { throw CocoaError(.coderInvalidValue) }
+            let tuple = data.withUnsafeBytes { ptr -> uuid_t in
+                let b = ptr.bindMemory(to: UInt8.self)
+                return (b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15])
+            }
+            return UUID(uuid: tuple)
         }
     }
 }
 
-/// A small horizontal shake used to give friendly feedback on an incorrect drop.
 private struct ShakeEffect: GeometryEffect {
     var shakes: CGFloat
     var animatableData: CGFloat {

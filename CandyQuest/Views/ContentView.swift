@@ -88,9 +88,18 @@ struct RandomBackground: View {
     private let chosenName: String = imageNames.randomElement() ?? "Bubble_valley"
 
     var body: some View {
-        Image(chosenName)
-            .resizable()
-            .scaledToFill()
+        // The fill image is placed as an overlay on a Color.clear rather than
+        // used directly: an overlay never contributes to its base's layout size,
+        // so a wide landscape photo scaled to fill can't inflate the enclosing
+        // ZStack's width and push sibling content (e.g. task prompts) off-screen.
+        // .clipped() trims the overflow that scaledToFill produces.
+        Color.clear
+            .overlay {
+                Image(chosenName)
+                    .resizable()
+                    .scaledToFill()
+            }
+            .clipped()
             .ignoresSafeArea()
             .accessibilityHidden(true)
     }

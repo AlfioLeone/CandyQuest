@@ -44,6 +44,9 @@ struct OrderObjectsView: View {
                     if let placed = item(atRank: rank) {
                         Text(placed.emoji)
                             .font(.system(size: min(placed.size, 30)))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.4)
+                            .padding(.horizontal, 4)
                     } else {
                         Text("\(rank + 1)")
                             .font(.candyBody(18))
@@ -52,16 +55,24 @@ struct OrderObjectsView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private var itemGrid: some View {
         ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: 14)], spacing: 14) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 14)], alignment: .center, spacing: 14) {
                 ForEach(task.items) { item in
                     let isPlaced = placedIDs.contains(item.id)
+                    // Count-based items pack several emoji into one string
+                    // (e.g. "🍬🍬🍬🍬🍬"); allow the cluster to wrap onto two
+                    // lines and scale down so every candy stays visible instead
+                    // of being truncated with an ellipsis.
                     Text(item.emoji)
                         .font(.system(size: item.size))
-                        .frame(width: 64, height: 64)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.4)
+                        .multilineTextAlignment(.center)
+                        .frame(width: 92, height: 74)
                         .background(
                             CandyCardBackground(color: isPlaced ? .green : CandyTheme.hotPink)
                                 .opacity(isPlaced ? 0.5 : 1)
@@ -75,6 +86,7 @@ struct OrderObjectsView: View {
             }
             .padding(.vertical, 4)
         }
+        .frame(maxWidth: .infinity)
         .frame(minHeight: 140, maxHeight: 260)
     }
 

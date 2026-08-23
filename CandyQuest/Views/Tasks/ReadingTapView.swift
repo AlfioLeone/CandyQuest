@@ -16,21 +16,40 @@ struct ReadingTapView: View {
                 .foregroundColor(.black.opacity(0.75))
                 .padding(.horizontal, 24)
 
-            HStack(spacing: 20) {
-                ForEach(task.options) { option in
-                    Button {
-                        handleTap(option)
-                    } label: {
-                        VStack {
+            if task.options.count > 3 {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 20) {
+                    ForEach(task.options) { option in
+                        Button {
+                            handleTap(option)
+                        } label: {
                             Text(option.emoji).font(.system(size: 56))
+                                .frame(width: 96, height: 96)
+                                .background(
+                                    CandyCardBackground(color: borderColor(for: option))
+                                )
                         }
-                        .frame(width: 96, height: 96)
-                        .background(
-                            CandyCardBackground(color: borderColor(for: option))
-                        )
+                        .buttonStyle(.plain)
+                        .disabled(showCorrect)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(showCorrect)
+                }
+                .padding(.horizontal, 40)
+            } else {
+                HStack(spacing: 20) {
+                    ForEach(task.options) { option in
+                        Button {
+                            handleTap(option)
+                        } label: {
+                            VStack {
+                                Text(option.emoji).font(.system(size: 56))
+                            }
+                            .frame(width: 96, height: 96)
+                            .background(
+                                CandyCardBackground(color: borderColor(for: option))
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(showCorrect)
+                    }
                 }
             }
         }

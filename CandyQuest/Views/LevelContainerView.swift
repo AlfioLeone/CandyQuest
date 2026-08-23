@@ -11,7 +11,7 @@ struct LevelContainerView: View {
     var body: some View {
         ZStack {
             Color.clear.ignoresSafeArea()
-            VStack {
+            VStack(spacing: 0) {
                 HStack(spacing: 10) {
                     if let sticker = gameState.equippedSticker {
                         Text(sticker.emoji)
@@ -24,29 +24,41 @@ struct LevelContainerView: View {
                         .foregroundColor(CandyTheme.color(for: level.category))
                 }
                 .padding(.top, 20)
+                .padding(.bottom, 8)
 
-                Spacer()
-
-                switch level.category {
-                case .readingTap:
-                    ReadingTapView(task: GameData.readingTapTask(for: level), onComplete: onComplete)
-                case .mathAddition, .mathSubtraction:
-                    MathTaskView(level: level, onComplete: onComplete)
-                case .dragMatch:
-                    DragMatchView(level: level, onComplete: onComplete)
-                case .trace:
-                    TraceView(task: GameData.traceTask(for: level), onComplete: onComplete)
-                case .orderObjects:
-                    OrderObjectsView(level: level, onComplete: onComplete)
-                case .oddOneOut:
-                    OddOneOutView(task: GameData.oddOneOutTask(for: level), onComplete: onComplete)
+                // The task lives in a scroll view sized to at least the available
+                // height: when it fits (portrait) the minHeight frame centers it
+                // just like a flexible fill would; when it doesn't (landscape, where
+                // vertical space is scarce) the content scrolls instead of being
+                // clipped off the top and bottom.
+                GeometryReader { proxy in
+                    ScrollView {
+                        taskView
+                            .frame(minWidth: proxy.size.width, minHeight: proxy.size.height)
+                    }
                 }
-
-                Spacer()
             }
         }
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { bounce = true }
+    }
+
+    @ViewBuilder
+    private var taskView: some View {
+        switch level.category {
+        case .readingTap:
+            ReadingTapView(task: GameData.readingTapTask(for: level), onComplete: onComplete)
+        case .mathAddition, .mathSubtraction:
+            MathTaskView(level: level, onComplete: onComplete)
+        case .dragMatch:
+            DragMatchView(level: level, onComplete: onComplete)
+        case .trace:
+            TraceView(task: GameData.traceTask(for: level), onComplete: onComplete)
+        case .orderObjects:
+            OrderObjectsView(level: level, onComplete: onComplete)
+        case .oddOneOut:
+            OddOneOutView(task: GameData.oddOneOutTask(for: level), onComplete: onComplete)
+        }
     }
 }
 
@@ -66,22 +78,42 @@ struct OddOneOutView: View {
                 .foregroundColor(.black.opacity(0.75))
                 .padding(.horizontal, 20)
 
-            HStack(spacing: 20) {
-                ForEach(task.options) { option in
-                    Button {
-                        handleTap(option)
-                    } label: {
-                        VStack {
+            if task.options.count > 3 {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 20) {
+                    ForEach(task.options) { option in
+                        Button {
+                            handleTap(option)
+                        } label: {
                             Text(option.emoji)
                                 .font(.system(size: 56))
+                                .frame(width: 96, height: 96)
+                                .background(
+                                    CandyCardBackground(color: borderColor(for: option))
+                                )
                         }
-                        .frame(width: 96, height: 96)
-                        .background(
-                            CandyCardBackground(color: borderColor(for: option))
-                        )
+                        .buttonStyle(.plain)
+                        .disabled(showCorrect || solved)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(showCorrect || solved)
+                }
+                .padding(.horizontal, 40)
+            } else {
+                HStack(spacing: 20) {
+                    ForEach(task.options) { option in
+                        Button {
+                            handleTap(option)
+                        } label: {
+                            VStack {
+                                Text(option.emoji)
+                                    .font(.system(size: 56))
+                            }
+                            .frame(width: 96, height: 96)
+                            .background(
+                                CandyCardBackground(color: borderColor(for: option))
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(showCorrect || solved)
+                    }
                 }
             }
 

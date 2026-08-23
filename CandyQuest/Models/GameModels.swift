@@ -46,7 +46,7 @@ struct MathProblem {
 
 // MARK: - Drag & Match
 
-struct MatchPair: Identifiable {
+struct MatchPair: Identifiable, Codable {
     let id = UUID()
     let word: String
     let emoji: String
